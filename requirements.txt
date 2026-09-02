@@ -8,3 +8,4 @@ openpyxl
 pypdf
 reportlab
 shap
+xgboost
