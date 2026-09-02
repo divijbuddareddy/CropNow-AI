@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CropNow — AI Crop Failure & Yield-Loss Early Warning System</title>
+  <meta name="description" content="End-to-end Agronomic Decision Support & Predictive AI System. CSV Upload -> Preprocessing -> XGBoost/LightGBM Inference -> SHAP Explainability -> 7-Day Early Warning -> Action.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Top Global Header -->
+  <header class="top-header">
+    <div class="brand-container">
+      <div class="brand-logo">
+        <i data-lucide="sprout"></i>
+      </div>
+      <div>
+        <div class="brand-title">Crop<span>Now</span> AI</div>
+        <div style="font-size: 11px; color: var(--text-dim); margin-top: -2px;">Agronomic Early Warning Decision Support</div>
+      </div>
+      <span class="model-badge" id="active-model-badge"><i data-lucide="cpu" style="width: 12px; height: 12px; display: inline;"></i> v2.4-XGBoost-Ensemble</span>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn btn-secondary btn-sm" id="btn-load-sample" onclick="loadDemoDataset()">
+        <i data-lucide="sparkles"></i> Load 84-Field Demo Data
+      </button>
+      <button class="btn btn-secondary btn-sm" id="btn-download-sample-template" onclick="downloadTemplateCSV()">
+        <i data-lucide="download"></i> Download CSV Template
+      </button>
+      <button class="btn btn-primary btn-sm" id="btn-export-predictions" onclick="exportPredictionsCSV()">
+        <i data-lucide="file-spreadsheet"></i> Export Prediction CSV
+      </button>
+      <button class="btn btn-secondary btn-sm" id="btn-theme-toggle" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
+        <i data-lucide="sun-moon" id="theme-icon"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Navigation Tab Bar -->
+  <nav class="nav-tabs-bar">
+    <button class="nav-tab-btn active" onclick="switchTab('portfolio')">
+      <i data-lucide="layout-dashboard"></i> Portfolio Overview
+    </button>
+    <button class="nav-tab-btn" onclick="switchTab('upload')">
+      <i data-lucide="upload-cloud"></i> CSV Intake & Validation
+    </button>
+    <button class="nav-tab-btn" onclick="switchTab('raw-data')">
+      <i data-lucide="database"></i> Ingested Field Data
+    </button>
+    <button class="nav-tab-btn" onclick="switchTab('risk-table')">
+      <i data-lucide="alert-triangle"></i> Prioritized Risk Matrix
+    </button>
+    <button class="nav-tab-btn" onclick="switchTab('field-deepdive')">
+      <i data-lucide="microscope"></i> Field Deep-Dive & SHAP
+    </button>
+    <button class="nav-tab-btn" onclick="switchTab('sandbox')">
+      <i data-lucide="sliders"></i> What-If Simulation Sandbox
+    </button>
+    <button class="nav-tab-btn" onclick="switchTab('mlops')">
+      <i data-lucide="git-branch"></i> Model Hub & MLOps Studio
+    </button>
+  </nav>
+
+  <!-- Main Container -->
+  <main class="main-wrapper">
+
+    <!-- ==========================================
+         TAB 1: PORTFOLIO OVERVIEW & COMMAND CENTER
+         ========================================== -->
+    <section id="tab-portfolio" class="tab-view active">
+      
+      <!-- Executive Alert Ticker -->
+      <div class="executive-alert-banner" id="portfolio-alert-banner">
+        <div class="alert-content">
+          <div class="alert-pulse-icon">!</div>
+          <div>
+            <div class="alert-headline" id="portfolio-alert-headline">Loading early warning portfolio assessment...</div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+              Actionable priority list generated via XGBoost Yield Loss & Calibrated Risk Ensemble.
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="switchTab('risk-table')">
+          <i data-lucide="list-ordered"></i> View High-Risk Fields
+        </button>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">Fields Monitored</span>
+            <i data-lucide="map" class="kpi-icon"></i>
+          </div>
+          <div class="kpi-value" id="kpi-total-fields">--</div>
+          <div class="kpi-subtext">Active acreage parcels</div>
+        </div>
+
+        <div class="kpi-card kpi-danger">
+          <div class="kpi-header">
+            <span class="kpi-label">High / Critical Risk</span>
+            <i data-lucide="shield-alert" class="kpi-icon" style="color: var(--coral-light);"></i>
+          </div>
+          <div class="kpi-value" id="kpi-high-critical-count">--</div>
+          <div class="kpi-subtext" id="kpi-high-critical-pct">Requiring immediate agronomic action</div>
+        </div>
+
+        <div class="kpi-card kpi-warning">
+          <div class="kpi-header">
+            <span class="kpi-label">Average Yield Loss %</span>
+            <i data-lucide="trending-down" class="kpi-icon" style="color: var(--amber-light);"></i>
+          </div>
+          <div class="kpi-value" id="kpi-avg-loss-pct">--%</div>
+          <div class="kpi-subtext">Relative to crop potential baseline</div>
+        </div>
+
+        <div class="kpi-card kpi-emerald">
+          <div class="kpi-header">
+            <span class="kpi-label">Est. Financial Exposure (INR)</span>
+            <span class="kpi-icon" style="font-size: 20px; font-weight: 800; color: var(--emerald-light); line-height: 1; display: inline-flex; align-items: center; justify-content: center;">₹</span>
+          </div>
+          <div class="kpi-value" id="kpi-loss-usd">₹--</div>
+          <div class="kpi-subtext" id="kpi-loss-tons">-- Tons potential yield gap</div>
+        </div>
+      </div>
+
+      <!-- Charts Row 1 -->
+      <div class="charts-grid-2">
+        <div class="card-panel">
+          <div class="card-panel-header">
+            <div class="card-panel-title">
+              <i data-lucide="pie-chart" style="color: var(--emerald-light);"></i> Portfolio Risk Classification
+            </div>
+            <span style="font-size: 12px; color: var(--text-dim);">Probability-Calibrated</span>
+          </div>
+          <div class="chart-container-wrapper">
+            <canvas id="chart-risk-distribution"></canvas>
+          </div>
+        </div>
+
+        <div class="card-panel">
+          <div class="card-panel-header">
+            <div class="card-panel-title">
+              <i data-lucide="bar-chart-3" style="color: var(--amber-light);"></i> Expected vs Predicted Yield by Crop
+            </div>
+            <span style="font-size: 12px; color: var(--text-dim);">Tons / Acre Average</span>
+          </div>
+          <div class="chart-container-wrapper">
+            <canvas id="chart-crop-comparison"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Risk Exposure Fields Preview -->
+      <div class="card-panel">
+        <div class="card-panel-header">
+          <div class="card-panel-title">
+            <i data-lucide="alert-octagon" style="color: var(--coral-light);"></i> Top Priority Intervention Targets
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('risk-table')">View All Fields &rarr;</button>
+        </div>
+        <div class="data-table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Priority Rank</th>
+                <th>Field ID</th>
+                <th>Crop & Variety</th>
+                <th>Predicted Yield</th>
+                <th>Est. Loss %</th>
+                <th>Failure Risk</th>
+                <th>Primary Risk Factor</th>
+                <th>Intervention Window</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="top-priority-table-body">
+              <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">Loading observations...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ==========================================
+         TAB 2: CSV INTAKE, COLUMN MAPPER & VALIDATION
+         ========================================== -->
+    <section id="tab-upload" class="tab-view">
+      <div class="card-panel" style="margin-bottom: 24px;">
+        <div class="card-panel-header">
+          <div class="card-panel-title">
+            <i data-lucide="upload-cloud" style="color: var(--emerald-light);"></i> Field Observation CSV Ingestion
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary btn-sm" onclick="downloadTemplateCSV()">
+              <i data-lucide="download"></i> Download Template (.csv)
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="loadDemoDataset()">
+              <i data-lucide="sparkles"></i> Load 84-Field Demo Dataset
+            </button>
+          </div>
+        </div>
+
+        <div class="upload-dropzone" id="csv-dropzone" onclick="document.getElementById('csv-file-input').click()">
+          <i data-lucide="file-up" class="dropzone-icon"></i>
+          <h3 style="margin-bottom: 6px; font-size: 18px;">Drag & Drop your Field Observations CSV or PDF Reports here</h3>
+          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
+            Supports single or <strong>Multi-File Batch Upload</strong> (.csv, .pdf, .xlsx). Select all files together to auto-merge and analyze!
+          </p>
+          <input type="file" id="csv-file-input" accept=".csv, .pdf, .xlsx, .xls" multiple style="display: none;" onchange="handleFileUpload(event)">
+          <div style="display: flex; justify-content: center; gap: 10px;">
+            <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); document.getElementById('csv-file-input').click()">
+              <i data-lucide="folder-open"></i> Browse & Select Multiple Files (.csv / .pdf)
+            </button>
+          </div>
+        </div>
+
+        <!-- Pre-generated Sample Datasets In Project Folder -->
+        <div style="margin-top: 20px; padding: 16px; background: var(--bg-input); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="font-size: 13px; font-weight: 700; color: var(--emerald-light); display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="folder-check" style="width: 16px; height: 16px;"></i> Ready-to-Upload Demo Datasets in Project Folder:
+            </div>
+            <span style="font-size: 11px; color: var(--text-dim);">Located in <code>CropNow</code> root folder</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+            <button class="btn btn-secondary btn-sm" style="justify-content: flex-start; text-align: left; padding: 8px 12px;" onclick="loadQuickScenario('standard')">
+              <div>
+                <div style="font-weight: 700; color: #fff; font-size: 12px;">📊 1. Standard 84-Field CSV</div>
+                <div style="font-size: 10px; color: var(--text-muted);">sample_field_observations.csv</div>
+              </div>
+            </button>
+
+            <button class="btn btn-secondary btn-sm" style="justify-content: flex-start; text-align: left; padding: 8px 12px;" onclick="loadQuickScenario('pdf')">
+              <div>
+                <div style="font-weight: 700; color: #fff; font-size: 12px;">📄 2. Agronomic PDF Report</div>
+                <div style="font-size: 10px; color: var(--text-muted);">sample_field_observations.pdf</div>
+              </div>
+            </button>
+
+            <button class="btn btn-secondary btn-sm" style="justify-content: flex-start; text-align: left; padding: 8px 12px;" onclick="loadQuickScenario('custom_columns')">
+              <div>
+                <div style="font-weight: 700; color: #fff; font-size: 12px;">🔀 3. Column Mapper Demo</div>
+                <div style="font-size: 10px; color: var(--text-muted);">sample_different_column_names.csv</div>
+              </div>
+            </button>
+
+            <button class="btn btn-secondary btn-sm" style="justify-content: flex-start; text-align: left; padding: 8px 12px;" onclick="loadQuickScenario('outbreak')">
+              <div>
+                <div style="font-weight: 700; color: #fff; font-size: 12px;">🚨 4. Severe Outbreak Scenario</div>
+                <div style="font-size: 10px; color: var(--text-muted);">sample_high_risk_outbreak.csv</div>
+              </div>
+            </button>
+
+            <button class="btn btn-primary btn-sm" style="justify-content: flex-start; text-align: left; padding: 8px 12px; background: linear-gradient(135deg, var(--emerald-primary), var(--emerald-dark));" onclick="loadQuickScenario('all_merged')">
+              <div>
+                <div style="font-weight: 800; color: #fff; font-size: 12px;">🚀 5. Merge ALL Files at Once</div>
+                <div style="font-size: 10px; color: rgba(255,255,255,0.85);">Multi-file PDF + CSV unified ingest</div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Validation & Preprocessing Diagnostics Panel -->
+      <div class="card-panel" id="validation-panel" style="display: none;">
+        <div class="card-panel-header">
+          <div class="card-panel-title">
+            <i data-lucide="check-check" style="color: var(--emerald-light);"></i> Data Validation & Preprocessing Report
+          </div>
+          <span id="validation-status-badge" class="badge badge-low">VALID</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px;">
+          <div style="background: var(--bg-input); padding: 14px; border-radius: var(--radius-md);">
+            <div style="font-size: 11px; color: var(--text-muted);">TOTAL ROWS</div>
+            <div style="font-size: 20px; font-weight: 700;" id="val-rows">--</div>
+          </div>
+          <div style="background: var(--bg-input); padding: 14px; border-radius: var(--radius-md);">
+            <div style="font-size: 11px; color: var(--text-muted);">TOTAL COLUMNS</div>
+            <div style="font-size: 20px; font-weight: 700;" id="val-cols">--</div>
+          </div>
+          <div style="background: var(--bg-input); padding: 14px; border-radius: var(--radius-md);">
+            <div style="font-size: 11px; color: var(--text-muted);">DUPLICATES DETECTED</div>
+            <div style="font-size: 20px; font-weight: 700;" id="val-dups">0</div>
+          </div>
+          <div style="background: var(--bg-input); padding: 14px; border-radius: var(--radius-md);">
+            <div style="font-size: 11px; color: var(--text-muted);">DATA LEAKAGE CHECK</div>
+            <div style="font-size: 14px; font-weight: 700; color: var(--emerald-light);" id="val-leakage">SAFE (No target leakage)</div>
+          </div>
+        </div>
+
+        <!-- Missingness & Out of range warnings list -->
+        <div id="validation-details-container" style="font-size: 13px; color: var(--text-muted);">
+          <!-- Dynamic details injected here -->
+        </div>
+
+        <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 12px;">
+          <button class="btn btn-secondary" onclick="openColumnMapperModal()">
+            <i data-lucide="table-properties"></i> Inspect / Remap Columns
+          </button>
+          <button class="btn btn-primary" id="btn-run-inference-after-val" onclick="runInferenceOnCurrentDataset()">
+            <i data-lucide="play"></i> Execute Early Warning Inference
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================
+         TAB 3: PRIORITIZED RISK MATRIX TABLE
+         ========================================== -->
+    <section id="tab-risk-table" class="tab-view">
+      <div class="card-panel">
+        <div class="card-panel-header">
+          <div class="card-panel-title">
+            <i data-lucide="list-ordered" style="color: var(--emerald-light);"></i> Field Risk Ranking & Urgency Matrix
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-primary btn-sm" onclick="exportPredictionsCSV()">
+              <i data-lucide="download"></i> Export Predictions CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- Filters & Search Bar -->
+        <div class="table-controls">
+          <div class="filters-group">
+            <input type="text" id="table-search" class="search-input" placeholder="Search field, crop, variety..." oninput="filterRiskTable()">
+            
+            <select id="filter-risk" class="select-input" onchange="filterRiskTable()">
+              <option value="ALL">All Risk Levels</option>
+              <option value="CRITICAL">Critical Risk Only</option>
+              <option value="HIGH">High Risk Only</option>
+              <option value="MEDIUM">Medium Risk Only</option>
+              <option value="LOW">Low Risk Only</option>
+            </select>
+
+            <select id="filter-crop" class="select-input" onchange="filterRiskTable()">
+              <option value="ALL">All Crops</option>
+              <option value="Corn">Corn</option>
+              <option value="Soybean">Soybean</option>
+              <option value="Wheat">Wheat</option>
+              <option value="Cotton">Cotton</option>
+              <option value="Rice">Rice</option>
+            </select>
+          </div>
+
+          <div style="font-size: 12px; color: var(--text-dim);" id="table-record-count">
+            Showing 84 fields
+          </div>
+        </div>
+
+        <div class="data-table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th onclick="sortTable('priority_rank')">Rank ↕</th>
+                <th onclick="sortTable('field_id')">Field ID ↕</th>
+                <th onclick="sortTable('crop_type')">Crop & Variety ↕</th>
+                <th onclick="sortTable('growth_stage')">Growth Stage</th>
+                <th onclick="sortTable('expected_yield')">Expected Yield</th>
+                <th onclick="sortTable('predicted_yield')">Predicted Yield ↕</th>
+                <th onclick="sortTable('yield_loss_percentage')">Loss % ↕</th>
+                <th onclick="sortTable('failure_probability')">Failure Prob ↕</th>
+                <th onclick="sortTable('risk_level')">Risk Level ↕</th>
+                <th>Primary Risk Factor</th>
+                <th>Intervention Window</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="full-risk-table-body">
+              <tr><td colspan="12" style="text-align: center; color: var(--text-muted);">Loading predictions...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================
+         TAB 4: FIELD DEEP-DIVE & SHAP EXPLAINABILITY
+         ========================================== -->
+    <section id="tab-field-deepdive" class="tab-view">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <label style="font-weight: 600; color: var(--text-muted);">Select Field for Deep-Dive:</label>
+          <select id="deepdive-field-selector" class="select-input" style="min-width: 200px; font-weight: 700; color: var(--emerald-light);" onchange="loadFieldDeepDive(this.value)">
+            <!-- Populated dynamically -->
+          </select>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="openSimulationForCurrentField()">
+          <i data-lucide="sliders"></i> Simulate Interventions for this Field &rarr;
+        </button>
+      </div>
+
+      <!-- Field Overview Banner -->
+      <div class="card-panel" style="margin-bottom: 20px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;">
+          <div>
+            <div style="font-size: 11px; color: var(--text-muted);">FIELD & CROP</div>
+            <div style="font-size: 18px; font-weight: 800; color: var(--text-main);" id="dive-field-name">--</div>
+            <div style="font-size: 12px; color: var(--emerald-light);" id="dive-crop-variety">--</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: var(--text-muted);">EXPECTED vs PREDICTED</div>
+            <div style="font-size: 18px; font-weight: 800;" id="dive-yield-stats">-- / -- t/acre</div>
+            <div style="font-size: 12px; color: var(--coral-light);" id="dive-loss-pct">--% Yield Loss</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: var(--text-muted);">FAILURE PROBABILITY</div>
+            <div style="font-size: 18px; font-weight: 800;" id="dive-fail-prob">--%</div>
+            <span id="dive-risk-badge" class="badge badge-critical">CRITICAL</span>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: var(--text-muted);">MODEL INTERVENTION WINDOW</div>
+            <div style="font-size: 18px; font-weight: 800; color: var(--amber-light);" id="dive-window">--</div>
+            <div style="font-size: 12px; color: var(--text-dim);">Decision support estimate</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="charts-grid-2">
+        <!-- Explainable AI (SHAP) Factor Attribution -->
+        <div class="card-panel">
+          <div class="card-panel-header">
+            <div class="card-panel-title">
+              <i data-lucide="help-circle" style="color: var(--emerald-light);"></i> Why did the model flag this field? (SHAP)
+            </div>
+            <span style="font-size: 11px; color: var(--text-dim);">Feature Attribution %</span>
+          </div>
+
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">
+            Relative feature attribution generated via SHAP TreeExplainer. Reflects model factors, not proven causation.
+          </p>
+
+          <div id="shap-breakdown-bars">
+            <!-- Dynamic SHAP attribution bars -->
+          </div>
+        </div>
+
+        <!-- 7-Day Risk Trajectory -->
+        <div class="card-panel">
+          <div class="card-panel-header">
+            <div class="card-panel-title">
+              <i data-lucide="trending-up" style="color: var(--coral-light);"></i> 7-Day Early Warning Risk Trajectory
+            </div>
+            <span style="font-size: 11px; color: var(--text-dim);">Multi-Day Forward Projection</span>
+          </div>
+
+          <div class="chart-container-wrapper" style="height: 200px;">
+            <canvas id="chart-field-trajectory"></canvas>
+          </div>
+
+          <div class="trajectory-steps" id="trajectory-steps-container">
+            <!-- Trajectory circle milestones -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Actionable Agronomic Recommendations & Sensor Radar -->
+      <div class="charts-grid-2" style="margin-top: 20px;">
+        <div class="card-panel">
+          <div class="card-panel-header">
+            <div class="card-panel-title">
+              <i data-lucide="clipboard-check" style="color: var(--emerald-light);"></i> Model-Based Recommended Actions
+            </div>
+          </div>
+          <div id="field-recommendations-list" style="display: flex; flex-direction: column; gap: 10px;">
+            <!-- Recommended action items -->
+          </div>
+        </div>
+
+        <div class="card-panel">
+          <div class="card-panel-header">
+            <div class="card-panel-title">
+              <i data-lucide="activity" style="color: var(--sage-accent);"></i> Agronomic Sensor Telemetry
+            </div>
+            <span style="font-size: 11px; color: var(--text-dim);">Current Readings</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px;" id="field-sensor-grid">
+            <!-- Telemetry key-values -->
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ==========================================
+         TAB 5: WHAT-IF SIMULATION SANDBOX
+         ========================================== -->
+    <section id="tab-sandbox" class="tab-view">
+      <div class="card-panel" style="margin-bottom: 24px;">
+        <div class="card-panel-header">
+          <div class="card-panel-title">
+            <i data-lucide="sliders" style="color: var(--emerald-light);"></i> Interactive What-If Counterfactual Sandbox
+          </div>
+          <span style="font-size: 12px; color: var(--text-muted);">Simulate mitigation actions and observe yield recovery</span>
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+          Adjust irrigation, nutrient top-dressing, fungicide applications, or temperature stress to simulate how agronomic interventions impact predicted yield and risk probabilities in real-time.
+        </p>
+
+        <div class="sim-grid">
+          <!-- Control Sliders -->
+          <div style="background: var(--bg-surface); padding: 22px; border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 14px;">
+            <div>
+              <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">TARGET PARCEL</label>
+              <select id="sim-field-selector" class="select-input" style="width: 100%; margin-top: 6px; font-weight: 700; color: var(--emerald-light);" onchange="syncSimulationField()">
+                <!-- Populated dynamically -->
+              </select>
+            </div>
+
+            <!-- Quick Preset Action Buttons -->
+            <div>
+              <div style="font-size: 11px; font-weight: 600; color: var(--text-dim); margin-bottom: 6px;">QUICK INTERVENTION PRESETS</div>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 8px;" onclick="applySimulationPreset('rescue')">
+                  ⚡ Rescue Protocol
+                </button>
+                <button class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 8px;" onclick="applySimulationPreset('drought')">
+                  💧 Drought Relief
+                </button>
+                <button class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 8px;" onclick="applySimulationPreset('disease')">
+                  🧪 Fungicide Blast
+                </button>
+              </div>
+            </div>
+
+            <div class="slider-group" style="margin-top: 6px;">
+              <div class="slider-label-row">
+                <span>Precision Irrigation (+mm)</span>
+                <span id="val-sim-irrigation" style="color: var(--emerald-light); font-weight: 700;">+0 mm</span>
+              </div>
+              <input type="range" id="sim-irrigation" class="slider-input" min="0" max="60" value="0" step="5" oninput="runLiveSimulation()">
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label-row">
+                <span>Nitrogen Top-Dressing (+kg/ha)</span>
+                <span id="val-sim-fert" style="color: var(--emerald-light); font-weight: 700;">+0 kg/ha</span>
+              </div>
+              <input type="range" id="sim-fert" class="slider-input" min="0" max="100" value="0" step="10" oninput="runLiveSimulation()">
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label-row">
+                <span>Systemic Fungicide Application</span>
+                <span id="val-sim-fungicide" style="color: var(--text-muted); font-weight: 600;">Inactive</span>
+              </div>
+              <div style="background: var(--bg-input); padding: 10px 12px; border-radius: var(--radius-md); margin-top: 4px; border: 1px solid var(--border-subtle);">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">
+                  <input type="checkbox" id="sim-fungicide" onchange="runLiveSimulation()" style="accent-color: var(--emerald-primary); transform: scale(1.2);">
+                  Deploy Broad-Spectrum Fungicide
+                </label>
+              </div>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label-row">
+                <span>Temperature Anomaly Adjustment (&deg;C)</span>
+                <span id="val-sim-temp" style="color: var(--amber-light); font-weight: 700;">0 &deg;C</span>
+              </div>
+              <input type="range" id="sim-temp" class="slider-input" min="-6" max="6" value="0" step="1" oninput="runLiveSimulation()">
+            </div>
+
+            <button class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 4px;" onclick="resetSimulationControls(); runLiveSimulation();">
+              <i data-lucide="rotate-ccw"></i> Reset to Baseline Observations
+            </button>
+          </div>
+
+          <!-- Simulation Comparison Results -->
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <!-- Delta Metric Cards -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px;">
+              <div style="background: var(--bg-surface); padding: 14px 18px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">PREDICTED YIELD GAIN</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--emerald-light); line-height: 1.2;" id="sim-yield-delta">+0.0 t/ac</div>
+                <div style="font-size: 11px; color: var(--text-dim);" id="sim-yield-detail">Target potential</div>
+              </div>
+
+              <div style="background: var(--bg-surface); padding: 14px 18px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">YIELD LOSS MITIGATION</div>
+                <div style="font-size: 22px; font-weight: 800; color: var(--emerald-light); line-height: 1.2;" id="sim-loss-delta">-0.0%</div>
+                <div style="font-size: 11px; color: var(--text-dim);" id="sim-loss-detail">Remaining loss: --%</div>
+              </div>
+
+              <div style="background: var(--bg-surface); padding: 14px 18px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">POST-INTERVENTION RISK</div>
+                <div style="font-size: 18px; font-weight: 800; line-height: 1.4;" id="sim-new-risk">--</div>
+                <div style="font-size: 11px; color: var(--text-dim);" id="sim-risk-detail">Failure probability</div>
+              </div>
+
+              <div style="background: var(--bg-surface); padding: 14px 18px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">EST. NET ROI PER ACRE (INR)</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--amber-light); line-height: 1.2;" id="sim-roi-val">+₹0 / ac</div>
+                <div style="font-size: 11px; color: var(--text-dim);" id="sim-roi-sub">0.0x Return on treatment</div>
+              </div>
+            </div>
+
+            <!-- Before vs After Comparison Chart -->
+            <div class="card-panel" style="padding: 18px;">
+              <div class="card-panel-header" style="margin-bottom: 8px;">
+                <div class="card-panel-title" style="font-size: 15px;">
+                  <i data-lucide="git-compare" style="color: var(--emerald-light);"></i> 7-Day Risk Trajectory: Unmanaged Baseline vs Intervention
+                </div>
+                <span style="font-size: 11px; color: var(--text-dim);">Probability Projection (Today &rarr; Day 7)</span>
+              </div>
+              <div class="chart-container-wrapper" style="height: 260px;">
+                <canvas id="chart-sim-comparison"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================
+         TAB 6: MLOps STUDIO & MODEL BENCHMARK HUB
+         ========================================== -->
+    <section id="tab-mlops" class="tab-view">
+      <!-- Benchmark Metrics Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">Yield MAE</span>
+            <i data-lucide="target" class="kpi-icon"></i>
+          </div>
+          <div class="kpi-value" id="ml-mae">--</div>
+          <div class="kpi-subtext">Mean Absolute Error (t/acre)</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">Yield R&sup2; Score</span>
+            <i data-lucide="check-circle" class="kpi-icon" style="color: var(--emerald-light);"></i>
+          </div>
+          <div class="kpi-value" id="ml-r2">--</div>
+          <div class="kpi-subtext">Explained variance on holdout</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">Risk Classification ROC-AUC</span>
+            <i data-lucide="shield" class="kpi-icon" style="color: var(--amber-light);"></i>
+          </div>
+          <div class="kpi-value" id="ml-roc-auc">--</div>
+          <div class="kpi-subtext">Failure discrimination power</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">Top 20% Capture Rate</span>
+            <i data-lucide="award" class="kpi-icon" style="color: var(--emerald-light);"></i>
+          </div>
+          <div class="kpi-value" id="ml-capture-rate">--%</div>
+          <div class="kpi-subtext">True high-loss fields caught</div>
+        </div>
+      </div>
+
+      <!-- Leakage-Safe Model Comparison Matrix -->
+      <div class="card-panel" style="margin-bottom: 24px;">
+        <div class="card-panel-header">
+          <div class="card-panel-title">
+            <i data-lucide="layers" style="color: var(--emerald-light);"></i> Leakage-Safe Model Benchmark Matrix
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="triggerModelRetrain()">
+            <i data-lucide="refresh-cw"></i> Retrain on Harvest Data
+          </button>
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 14px;">
+          Evaluated using GroupKFold field-aware cross-validation to prevent spatial and temporal data leakage across parcel boundaries.
+        </p>
+        <div class="data-table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Model Architecture</th>
+                <th>Yield MAE (t/ac)</th>
+                <th>Yield RMSE (t/ac)</th>
+                <th>Yield R&sup2;</th>
+                <th>Training Time</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="model-comparison-table-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="charts-grid-2">
+        <!-- Feature Importance -->
+        <div class="card-panel">
+          <div class="card-panel-header">
+            <div class="card-panel-title">
+              <i data-lucide="bar-chart-2" style="color: var(--emerald-light);"></i> Global Feature Importance (XGBoost)
+            </div>
+          </div>
+          <div class="chart-container-wrapper">
+            <canvas id="chart-feature-importance"></canvas>
+          </div>
+        </div>
+
+        <!-- Confusion Matrix & Calibration -->
+        <div class="card-panel">
+          <div class="card-panel-header">
+            <div class="card-panel-title">
+              <i data-lucide="grid" style="color: var(--amber-light);"></i> Failure Risk Confusion Matrix & Calibration
+            </div>
+          </div>
+          <div id="confusion-matrix-display" style="padding: 20px 10px;">
+            <!-- Rendered confusion matrix -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================
+         TAB: INGESTED FIELD DATA & TELEMETRY EXPLORER
+         ========================================== -->
+    <section id="tab-raw-data" class="tab-view">
+      <!-- Sensor Summary Stats Cards -->
+      <div class="kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">Avg Soil Moisture</span>
+            <i data-lucide="droplet" class="kpi-icon" style="color: var(--emerald-light);"></i>
+          </div>
+          <div class="kpi-value" id="raw-stat-moisture">--%</div>
+          <div class="kpi-subtext" id="raw-range-moisture">Range: -- to --%</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">Avg Temperature</span>
+            <i data-lucide="thermometer" class="kpi-icon" style="color: var(--amber-light);"></i>
+          </div>
+          <div class="kpi-value" id="raw-stat-temp">-- &deg;C</div>
+          <div class="kpi-subtext" id="raw-range-temp">Range: -- to -- &deg;C</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">Avg Canopy NDVI</span>
+            <i data-lucide="sprout" class="kpi-icon" style="color: var(--emerald-light);"></i>
+          </div>
+          <div class="kpi-value" id="raw-stat-ndvi">--</div>
+          <div class="kpi-subtext" id="raw-range-ndvi">Range: -- to --</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-label">Avg Disease Score</span>
+            <i data-lucide="bug" class="kpi-icon" style="color: var(--coral-light);"></i>
+          </div>
+          <div class="kpi-value" id="raw-stat-disease">-- / 100</div>
+          <div class="kpi-subtext" id="raw-range-disease">Range: -- to --</div>
+        </div>
+      </div>
+
+      <!-- Raw Observation Data Grid -->
+      <div class="card-panel">
+        <div class="card-panel-header">
+          <div class="card-panel-title">
+            <i data-lucide="table" style="color: var(--emerald-light);"></i> Ingested Field Sensor Observations & Agronomic Telemetry
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary btn-sm" onclick="downloadTemplateCSV()">
+              <i data-lucide="download"></i> Download CSV
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="switchTab('upload')">
+              <i data-lucide="upload"></i> Upload New CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- Search & Filter Controls -->
+        <div class="table-controls">
+          <div class="filters-group">
+            <input type="text" id="raw-data-search" class="search-input" placeholder="Search field, crop, stage..." oninput="filterRawDataTable()">
+            <select id="raw-crop-filter" class="select-input" onchange="filterRawDataTable()">
+              <option value="ALL">All Crops</option>
+              <option value="Corn">Corn</option>
+              <option value="Soybean">Soybean</option>
+              <option value="Wheat">Wheat</option>
+              <option value="Cotton">Cotton</option>
+              <option value="Rice">Rice</option>
+            </select>
+          </div>
+          <div style="font-size: 12px; color: var(--text-dim);" id="raw-record-counter">
+            Showing 0 observations
+          </div>
+        </div>
+
+        <div class="data-table-container" style="max-height: 65vh; overflow-y: auto;">
+          <table class="data-table" id="raw-data-grid">
+            <thead id="raw-table-header">
+              <tr>
+                <th>Field ID</th>
+                <th>Date</th>
+                <th>Crop</th>
+                <th>Variety</th>
+                <th>Age (d)</th>
+                <th>Stage</th>
+                <th>Soil Moist (%)</th>
+                <th>Soil Temp (&deg;C)</th>
+                <th>Soil pH</th>
+                <th>N (kg/ha)</th>
+                <th>P (kg/ha)</th>
+                <th>K (kg/ha)</th>
+                <th>Air Temp (&deg;C)</th>
+                <th>Humidity (%)</th>
+                <th>Rain (mm)</th>
+                <th>NDVI</th>
+                <th>Disease</th>
+                <th>Pest Count</th>
+              </tr>
+            </thead>
+            <tbody id="raw-data-table-body">
+              <tr><td colspan="18" style="text-align: center; color: var(--text-muted);">Loading raw dataset observations...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==========================================
+       COLUMN MAPPER MODAL
+       ========================================== -->
+  <div class="modal-overlay" id="column-mapper-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div style="font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+          <i data-lucide="table-properties" style="color: var(--emerald-light);"></i> Schema Column Mapping
+        </div>
+        <button class="close-btn" onclick="closeColumnMapperModal()">&times;</button>
+      </div>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        Map your CSV column headers to CropNow's standardized agronomic feature names without modifying your original files.
+      </p>
+
+      <div style="max-height: 50vh; overflow-y: auto; margin-bottom: 20px;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Standard Agronomic Feature</th>
+              <th>Your CSV Column</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="column-mapper-table-body">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 12px;">
+        <button class="btn btn-secondary" onclick="closeColumnMapperModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="applyColumnMapping()">
+          <i data-lucide="check"></i> Apply Mapping & Validate
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- App Script -->
+  <script src="js/app.js"></script>
+</body>
+</html>
