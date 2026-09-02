@@ -9,3 +9,4 @@ pypdf
 reportlab
 shap
 xgboost
+lightgbm
